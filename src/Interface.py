@@ -1,4 +1,4 @@
-import psycopg2
+import psycopg2.extensions
 import os
 import time
 from dotenv import load_dotenv
@@ -16,7 +16,6 @@ def getopenconnection():
     )
 
 def loadratings(ratingstablename, ratingsfilepath, openconnection):
-    import time
     start_time = time.time()
     cur = openconnection.cursor()
 
@@ -69,7 +68,6 @@ def loadratings(ratingstablename, ratingsfilepath, openconnection):
         cur.close()
 
 def rangepartition(ratingstablename, numberofpartitions, openconnection):
-    import time
     if numberofpartitions <= 0:
         raise ValueError("Number of partitions must be positive")
 
@@ -140,7 +138,7 @@ def roundrobininsert(ratingstablename, userid, itemid, rating, openconnection):
     cur = con.cursor()
     RROBIN_TABLE_PREFIX = 'rrobin_part'
     cur.execute("insert into " + ratingstablename + "(userid, movieid, rating) values (" + str(userid) + "," + str(itemid) + "," + str(rating) + ");")
-    cur.execute("select count(*) from " + ratingstablename + ";");
+    cur.execute("select count(*) from " + ratingstablename + ";")
     total_rows = (cur.fetchall())[0][0]
     numberofpartitions = count_partitions(RROBIN_TABLE_PREFIX, openconnection)
     index = (total_rows-1) % numberofpartitions
@@ -149,22 +147,39 @@ def roundrobininsert(ratingstablename, userid, itemid, rating, openconnection):
     cur.close()
     con.commit()
 
-def rangeinsert(ratingstablename, userid, itemid, rating, openconnection):
+
+def rangeinsert(_, userid, itemid, rating, openconnection: psycopg2.extensions.connection) -> None:
     """
     Function to insert a new row into the main table and specific partition based on range rating.
     """
-    con = openconnection
-    cur = con.cursor()
-    RANGE_TABLE_PREFIX = 'range_part'
-    numberofpartitions = count_partitions(RANGE_TABLE_PREFIX, openconnection)
-    delta = 5 / numberofpartitions
-    index = int(rating / delta)
-    if rating % delta == 0 and index != 0:
-        index = index - 1
-    table_name = RANGE_TABLE_PREFIX + str(index)
-    cur.execute("insert into " + table_name + "(userid, movieid, rating) values (" + str(userid) + "," + str(itemid) + "," + str(rating) + ");")
-    cur.close()
-    con.commit()
+    cursor = openconnection.cursor()
+    start_time = time.time()
+
+    prefix = "range_part"
+    partitions_number = count_partitions(prefix, openconnection)
+    print (f"[rangeinsert] Number of partitions: {partitions_number}")
+
+    if not partitions_number:
+        cursor.close()
+        raise Exception(f"No partitions found with prefix '{prefix}'")
+
+    delta = 5 / partitions_number
+    idx = int(rating / delta)
+
+    if rating % delta == 0 and idx:
+        idx -= 1
+    if idx >= partitions_number:
+        idx = partitions_number - 1
+
+    table_name = f"{prefix}{idx}"
+    command = f"INSERT INTO {table_name} (userid, movieid, rating) VALUES ('{userid}', '{itemid}', '{rating}');"
+    cursor.execute(command)
+    print (command)
+    
+    openconnection.commit()
+    cursor.close()
+    print (f"[rangeinsert] Done in {time.time() - start_time:.2f} seconds")
+
 
 def create_db(dbname):
     """
@@ -189,14 +204,16 @@ def create_db(dbname):
     cur.close()
     con.close()
 
-def count_partitions(prefix, openconnection):
+
+def count_partitions(prefix, openconnection: psycopg2.extensions.connection) -> int:
     """
     Function to count the number of tables which have the @prefix in their name somewhere.
     """
-    con = openconnection
-    cur = con.cursor()
-    cur.execute("select count(*) from pg_stat_user_tables where relname like " + "'" + prefix + "%';")
-    count = cur.fetchone()[0]
-    cur.close()
+    cursor = openconnection.cursor()
+    cursor.execute(
+        f"SELECT COUNT(*) FROM pg_stat_user_tables WHERE relname LIKE '{prefix}%';"
+    )
 
+    count = cursor.fetchone()[0]
+    cursor.close()
     return count

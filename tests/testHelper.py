@@ -1,11 +1,23 @@
+import os
 import traceback
 import psycopg2
+import psycopg2.extensions
+
+from dotenv import load_dotenv
 
 RANGE_TABLE_PREFIX = 'range_part'
 RROBIN_TABLE_PREFIX = 'rrobin_part'
 USER_ID_COLNAME = 'userid'
 MOVIE_ID_COLNAME = 'movieid'
 RATING_COLNAME = 'rating'
+
+load_dotenv()
+
+DB_NAME = os.getenv("DB_NAME")
+DB_USER = os.getenv("DB_USER")
+DB_PASSWORD = os.getenv("DB_PASSWORD")
+DB_HOST = os.getenv("DB_HOST")
+DB_PORT = int(os.getenv("DB_PORT"))
 
 # SETUP Functions
 def createdb(dbname):
@@ -51,7 +63,13 @@ def deleteAllPublicTables(openconnection):
 
     cur.close()
 
-def getopenconnection(user='postgres', password='ngan2004', dbname='postgres', host='localhost', port=2211):
+def getopenconnection(
+        user=DB_USER,
+        password=DB_PASSWORD,
+        dbname=DB_NAME,
+        host=DB_HOST,
+        port=DB_PORT
+) -> psycopg2.extensions.connection:
     return psycopg2.connect(
         dbname=dbname,
         user=user,

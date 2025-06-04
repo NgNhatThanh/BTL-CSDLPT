@@ -13,7 +13,7 @@ RATING_COLNAME = 'rating'
 INPUT_FILE_PATH = 'data/ml-10m/ml-10M100K/ratings.dat'
 ACTUAL_ROWS_IN_INPUT_FILE =  10000054  # Number of lines in the input file
 
-import psycopg2
+import psycopg2.extensions
 import traceback
 import testHelper
 import sys
@@ -43,12 +43,12 @@ if __name__ == '__main__':
                 print("rangepartition function fail!")
 
             # ALERT:: Use only one at a time i.e. uncomment only one line at a time and run the script
-            # [result, e] = testHelper.testrangeinsert(MyAssignment, RATINGS_TABLE, 100, 2, 3, conn, '2')
+            [result, e] = testHelper.testrangeinsert(MyAssignment, RATINGS_TABLE, 100, 2, 3, conn, '2')
             # [result, e] = testHelper.testrangeinsert(MyAssignment, RATINGS_TABLE, 100, 2, 0, conn, '0')
-            # if result:
-            #     print("rangeinsert function pass!")
-            # else:
-            #     print("rangeinsert function fail!")
+            if result:
+                print("rangeinsert function pass!")
+            else:
+                print("rangeinsert function fail!")
 
             # testHelper.deleteAllPublicTables(conn)
             # MyAssignment.loadratings(RATINGS_TABLE, INPUT_FILE_PATH, conn)
