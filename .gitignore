@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+.venv
+.idea
+.vscode
+data/**/*.dat
+node_modules
+package.json
+package-lock.json
