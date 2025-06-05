@@ -16,13 +16,16 @@ def getopenconnection():
     )
 
 def loadratings(ratingstablename, ratingsfilepath, openconnection):
+    from io import StringIO
+    import time
+
     start_time = time.time()
     cur = openconnection.cursor()
 
     try:
-        # Tạo bảng đích
+        # Tạo bảng chính
+        cur.execute(f"DROP TABLE IF EXISTS {ratingstablename};")
         cur.execute(f"""
-            DROP TABLE IF EXISTS {ratingstablename};
             CREATE TABLE {ratingstablename} (
                 UserID INT,
                 MovieID INT,
@@ -31,38 +34,24 @@ def loadratings(ratingstablename, ratingsfilepath, openconnection):
             );
         """)
 
-        # Tạo bảng tạm đơn giản hơn để tăng tốc copy
-        cur.execute("""
-            CREATE TEMP TABLE temp_ratings (
-                userid INT,
-                movieid INT,
-                rating FLOAT
-            ) ON COMMIT DROP;
-        """)
+        # Đọc và xử lý dữ liệu, chỉ lấy UserID, MovieID, Rating
+        with open(ratingsfilepath, 'r') as f:
+            data = [
+                f"{p[0]}\t{p[2]}\t{p[4]}\n"
+                for line in f if (p := line.strip().split(':')) and len(p) >= 5
+            ]
 
-        # Đọc và xử lý dữ liệu, chỉ lấy 3 cột cần thiết (1, 3, 5)
-        with open(ratingsfilepath, 'r') as infile:
-            buffer = []
-            for line in infile:
-                parts = line.strip().split(':')
-                if len(parts) >= 5:
-                    buffer.append(f"{parts[0]}\t{parts[2]}\t{parts[4]}\n")
-
-        # Viết vào bảng tạm
-        from io import StringIO
-        cur.copy_from(StringIO(''.join(buffer)), 'temp_ratings', sep='\t')
+        # Tạo bảng tạm và nạp dữ liệu
+        cur.execute("CREATE TEMP TABLE temp_ratings (userid INT, movieid INT, rating FLOAT) ON COMMIT DROP;")
+        cur.copy_from(StringIO(''.join(data)), 'temp_ratings', sep='\t')
 
         # Chuyển sang bảng chính
-        cur.execute(f"""
-            INSERT INTO {ratingstablename} (UserID, MovieID, Rating)
-            SELECT userid, movieid, rating FROM temp_ratings;
-        """)
-
+        cur.execute(f"INSERT INTO {ratingstablename} SELECT * FROM temp_ratings;")
         openconnection.commit()
-        print(f"[loadratings] Hoàn thành trong {time.time() - start_time:.2f} giây")
+        print(f"[loadratings] Completed in {time.time() - start_time:.2f} seconds")
     except Exception as e:
         openconnection.rollback()
-        print(f"[loadratings] Lỗi: {e}")
+        print(f"[loadratings] Error: {e}")
         raise
     finally:
         cur.close()
@@ -107,10 +96,11 @@ def rangepartition(ratingstablename, numberofpartitions, openconnection):
             """)
 
         openconnection.commit()
-        print(f"[rangepartition] Hoàn thành {numberofpartitions} partitions trong {time.time() - start_time:.2f} giây")
+        print(f"[rangepartition] Completed {numberofpartitions} partitions in {time.time() - start_time:.2f} seconds")
+
     except Exception as e:
         openconnection.rollback()
-        print(f"[rangepartition] Lỗi: {e}")
+        print(f"[rangepartition] Error: {e}")
         raise
     finally:
         cur.close()
