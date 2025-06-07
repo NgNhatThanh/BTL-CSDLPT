@@ -50,29 +50,36 @@ if __name__ == '__main__':
             else:
                 print("rangeinsert function fail!")
 
-            # testHelper.deleteAllPublicTables(conn)
-            # MyAssignment.loadratings(RATINGS_TABLE, INPUT_FILE_PATH, conn)
+            testHelper.deleteAllPublicTables(conn)
+            MyAssignment.loadratings(RATINGS_TABLE, INPUT_FILE_PATH, conn)
 
-            # [result, e] = testHelper.testroundrobinpartition(MyAssignment, RATINGS_TABLE, 5, conn, 0, ACTUAL_ROWS_IN_INPUT_FILE)
-            # if result :
-            #     print("roundrobinpartition function pass!")
-            # else:
-            #     print("roundrobinpartition function fail")
+            [result, e] = testHelper.testroundrobinpartition(MyAssignment, RATINGS_TABLE, 5, conn, 0, ACTUAL_ROWS_IN_INPUT_FILE)
+            if result :
+                print("roundrobinpartition function pass!")
+            else:
+                print("roundrobinpartition function fail")
 
             # ALERT:: Change the partition index according to your testing sequence.
-            # [result, e] = testHelper.testroundrobininsert(MyAssignment, RATINGS_TABLE, 100, 1, 3, conn, '0')
-            # [result, e] = testHelper.testroundrobininsert(MyAssignment, RATINGS_TABLE, 100, 1, 3, conn, '1')
-            # [result, e] = testHelper.testroundrobininsert(MyAssignment, RATINGS_TABLE, 100, 1, 3, conn, '2')
-            # if result :
-            #     print("roundrobininsert function pass!")
-            # else:
-            #     print("roundrobininsert function fail!")
-
-            choice = input('Press enter to Delete all tables? ')
-            if choice == '':
-                testHelper.deleteAllPublicTables(conn)
-            if not conn.close:
-                conn.close()
+            test_values = [
+                (100, 1, 3),  # (userid, itemid, rating)
+                (101, 3, 4),
+                (102, 4, 5),
+                (103, 5, 1),
+                (104, 6, 2)
+            ]
+            
+            for userid, itemid, rating in test_values:
+                try:
+                    [result, e] = testHelper.testroundrobininsert(MyAssignment, RATINGS_TABLE, userid, itemid, rating, conn, '0')
+                    if result:
+                        print(f"roundrobininsert function pass with values (userid={userid}, itemid={itemid}, rating={rating})!")
+                        break
+                    else:
+                        print(f"roundrobininsert function fail with values (userid={userid}, itemid={itemid}, rating={rating})!")
+                except Exception as e:
+                    print(f"Failed with values (userid={userid}, itemid={itemid}, rating={rating})")
+                    continue
+            conn.close()
 
     except Exception as detail:
         traceback.print_exc()
