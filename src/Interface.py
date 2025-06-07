@@ -15,6 +15,23 @@ def getopenconnection():
         port=int(os.getenv('DB_PORT'))
     )
 
+
+def create_metadata_table_if_not_exists(cursor: psycopg2.extensions.cursor) -> None:
+    command = (
+        """
+        CREATE TABLE IF NOT EXISTS partition_metadata 
+        (
+            partition_type VARCHAR(20) PRIMARY KEY,
+            partition_count INT NOT NULL,
+            last_used INT
+        );
+        """
+    )
+
+    cursor.execute(command)
+    print (command)
+
+
 def loadratings(ratingstablename, ratingsfilepath, openconnection):
     from io import StringIO
     import time
@@ -63,6 +80,7 @@ def rangepartition(ratingstablename, numberofpartitions, openconnection):
     start_time = time.time()
     try:
         cur = openconnection.cursor()
+        create_metadata_table_if_not_exists(cur)
         RANGE_TABLE_PREFIX = 'range_part'
 
         step = 5.0 / numberofpartitions
@@ -94,6 +112,14 @@ def rangepartition(ratingstablename, numberofpartitions, openconnection):
                 FROM {ratingstablename}
                 WHERE {condition};
             """)
+
+        command = (f"""
+            INSERT INTO partition_metadata (partition_type, partition_count, last_used)
+            VALUES ('range', {numberofpartitions}, NULL)
+        """)
+
+        cur.execute(command)
+        print (command)
 
         openconnection.commit()
         print(f"[rangepartition] Completed {numberofpartitions} partitions in {time.time() - start_time:.2f} seconds")
@@ -142,33 +168,43 @@ def rangeinsert(_, userid, itemid, rating, openconnection: psycopg2.extensions.c
     """
     Function to insert a new row into the main table and specific partition based on range rating.
     """
-    cursor = openconnection.cursor()
-    start_time = time.time()
+    try:
+        cursor = openconnection.cursor()
+        start_time = time.time()
 
-    prefix = "range_part"
-    partitions_number = count_partitions(prefix, openconnection)
-    print (f"[rangeinsert] Number of partitions: {partitions_number}")
+        type = "range"
+        partitions_number = count_partitions(type, openconnection)
+        print (f"[rangeinsert] Number of partitions: {partitions_number}")
 
-    if not partitions_number:
+        if not partitions_number:
+            cursor.close()
+            raise Exception(f"No partitions found with type '{type}'")
+
+        if partitions_number is None:
+            cursor.close()
+            raise Exception(f"Error counting partitions with type '{type}'")
+
+        delta = 5 / partitions_number
+        idx = int(rating / delta)
+
+        if rating % delta == 0 and idx:
+            idx -= 1
+        if idx >= partitions_number:
+            idx = partitions_number - 1
+
+        prefix = "range_part"
+        table_name = f"{prefix}{idx}"
+        command = f"INSERT INTO {table_name} (userid, movieid, rating) VALUES ({userid}, {itemid}, {rating});"
+        cursor.execute(command)
+        print (command)
+
+        openconnection.commit()
+        print (f"[rangeinsert] Completed in {time.time() - start_time:.2f} seconds")
+    except Exception as e:
+        openconnection.rollback()
+        raise Exception(f"[rangeinsert] Error: {e}")
+    finally:
         cursor.close()
-        raise Exception(f"No partitions found with prefix '{prefix}'")
-
-    delta = 5 / partitions_number
-    idx = int(rating / delta)
-
-    if rating % delta == 0 and idx:
-        idx -= 1
-    if idx >= partitions_number:
-        idx = partitions_number - 1
-
-    table_name = f"{prefix}{idx}"
-    command = f"INSERT INTO {table_name} (userid, movieid, rating) VALUES ('{userid}', '{itemid}', '{rating}');"
-    cursor.execute(command)
-    print (command)
-    
-    openconnection.commit()
-    cursor.close()
-    print (f"[rangeinsert] Done in {time.time() - start_time:.2f} seconds")
 
 
 def create_db(dbname):
@@ -195,15 +231,22 @@ def create_db(dbname):
     con.close()
 
 
-def count_partitions(prefix, openconnection: psycopg2.extensions.connection) -> int:
+def count_partitions(type, openconnection: psycopg2.extensions.connection) -> int | None:
     """
-    Function to count the number of tables which have the @prefix in their name somewhere.
+    Function to count the number of partitions which type is @type.
     """
-    cursor = openconnection.cursor()
-    cursor.execute(
-        f"SELECT COUNT(*) FROM pg_stat_user_tables WHERE relname LIKE '{prefix}%';"
-    )
-
-    count = cursor.fetchone()[0]
-    cursor.close()
-    return count
+    try:
+        cursor = openconnection.cursor()
+        command = f"""
+            SELECT partition_count
+            FROM partition_metadata
+            WHERE partition_type = '{type}';
+        """
+        
+        cursor.execute(command)
+        return cursor.fetchone()[0]
+    except Exception as e:
+        print (f"[count_partitions] Error: {e}")
+        return None
+    finally:
+        cursor.close()
