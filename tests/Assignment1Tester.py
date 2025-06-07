@@ -43,7 +43,7 @@ if __name__ == '__main__':
                 print("rangepartition function fail!")
 
             # ALERT:: Use only one at a time i.e. uncomment only one line at a time and run the script
-            [result, e] = testHelper.testrangeinsert(MyAssignment, RATINGS_TABLE, 100, 2, 3, conn, '2')
+            [result, e] = testHelper.testrangeinsert(MyAssignment, RATINGS_TABLE, 100, 2, 3, conn, '0')
             # [result, e] = testHelper.testrangeinsert(MyAssignment, RATINGS_TABLE, 100, 2, 0, conn, '0')
             if result:
                 print("rangeinsert function pass!")
@@ -60,26 +60,12 @@ if __name__ == '__main__':
                 print("roundrobinpartition function fail")
 
             # ALERT:: Change the partition index according to your testing sequence.
-            test_values = [
-                (100, 1, 3),  # (userid, itemid, rating)
-                (101, 3, 4),
-                (102, 4, 5),
-                (103, 5, 1),
-                (104, 6, 2)
-            ]
-            
-            for userid, itemid, rating in test_values:
-                try:
-                    [result, e] = testHelper.testroundrobininsert(MyAssignment, RATINGS_TABLE, userid, itemid, rating, conn, '0')
-                    if result:
-                        print(f"roundrobininsert function pass with values (userid={userid}, itemid={itemid}, rating={rating})!")
-                        break
-                    else:
-                        print(f"roundrobininsert function fail with values (userid={userid}, itemid={itemid}, rating={rating})!")
-                except Exception as e:
-                    print(f"Failed with values (userid={userid}, itemid={itemid}, rating={rating})")
-                    continue
-            conn.close()
+            [result, e] = testHelper.testroundrobininsert(MyAssignment, RATINGS_TABLE, 100, 2, 5, conn, '3')
+            if result:
+                print("roundrobininsert function pass!")
+            else:
+                print("roundrobininsert function fail!")
+            # conn.close()
 
     except Exception as detail:
         traceback.print_exc()
