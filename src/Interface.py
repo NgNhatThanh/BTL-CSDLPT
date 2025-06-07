@@ -132,36 +132,94 @@ def rangepartition(ratingstablename, numberofpartitions, openconnection):
         cur.close()
         
 def roundrobinpartition(ratingstablename, numberofpartitions, openconnection):
-    """
-    Function to create partitions of main table using round robin approach.
-    """
-    con = openconnection
-    cur = con.cursor()
-    RROBIN_TABLE_PREFIX = 'rrobin_part'
-    for i in range(0, numberofpartitions):
-        table_name = RROBIN_TABLE_PREFIX + str(i)
-        cur.execute("create table " + table_name + " (userid integer, movieid integer, rating float);")
-        cur.execute("insert into " + table_name + " (userid, movieid, rating) select userid, movieid, rating from (select userid, movieid, rating, ROW_NUMBER() over() as rnum from " + ratingstablename + ") as temp where mod(temp.rnum-1, 5) = " + str(i) + ";")
-    cur.close()
-    con.commit()
+    if numberofpartitions <= 0:
+        raise ValueError("Number of partitions must be positive")
+
+    start_time = time.time()
+    try:
+        cur = openconnection.cursor()
+        create_metadata_table_if_not_exists(cur)
+        RROBIN_TABLE_PREFIX = 'rrobin_part'
+
+        # Tạo các bảng phân mảnh
+        for i in range(numberofpartitions):
+            cur.execute(f"""
+                DROP TABLE IF EXISTS {RROBIN_TABLE_PREFIX}{i};
+                CREATE TABLE {RROBIN_TABLE_PREFIX}{i} (
+                    userid INTEGER, 
+                    movieid INTEGER, 
+                    rating FLOAT,
+                    PRIMARY KEY (userid, movieid)
+                );
+            """)
+            cur.execute(f"""
+                INSERT INTO {RROBIN_TABLE_PREFIX}{i}(userid, movieid, rating)
+                SELECT userid, movieid, rating 
+                FROM (
+                    SELECT userid, movieid, rating,
+                           row_number() over () - 1 as rn
+                    FROM {ratingstablename}
+                ) t
+                WHERE mod(rn, {numberofpartitions}) = {i};
+            """)
+
+        command = (f"""
+            INSERT INTO partition_metadata (partition_type, partition_count, last_used)
+            VALUES ('rrobin', {numberofpartitions}, {time.time()})
+        """)
+
+        cur.execute(command)
+        print (command)
+
+        openconnection.commit()
+        print(f"[roundrobinpartition] Completed {numberofpartitions} partitions in {time.time() - start_time:.2f} seconds")
+
+    except Exception as e:
+        openconnection.rollback()
+        print(f"[roundrobinpartition] Error: {e}")
+        raise
+    finally:
+        cur.close()
 
 def roundrobininsert(ratingstablename, userid, itemid, rating, openconnection):
-    """
-    Function to insert a new row into the main table and specific partition based on round robin
-    approach.
-    """
-    con = openconnection
-    cur = con.cursor()
-    RROBIN_TABLE_PREFIX = 'rrobin_part'
-    cur.execute("insert into " + ratingstablename + "(userid, movieid, rating) values (" + str(userid) + "," + str(itemid) + "," + str(rating) + ");")
-    cur.execute("select count(*) from " + ratingstablename + ";")
-    total_rows = (cur.fetchall())[0][0]
-    numberofpartitions = count_partitions(RROBIN_TABLE_PREFIX, openconnection)
-    index = (total_rows-1) % numberofpartitions
-    table_name = RROBIN_TABLE_PREFIX + str(index)
-    cur.execute("insert into " + table_name + "(userid, movieid, rating) values (" + str(userid) + "," + str(itemid) + "," + str(rating) + ");")
-    cur.close()
-    con.commit()
+    try:
+        cur = openconnection.cursor()
+        RROBIN_TABLE_PREFIX = 'rrobin_part'
+
+        # Kiểm tra số partition
+        numberofpartitions = count_partitions('rrobin', openconnection)
+        if not numberofpartitions:
+            raise ValueError("No round-robin partitions found")
+
+        # Insert vào bảng chính và lấy số hàng trong một query
+        cur.execute(f"""
+            WITH inserted AS (
+                INSERT INTO {ratingstablename} (userid, movieid, rating) 
+                VALUES (%s, %s, %s)
+                RETURNING (SELECT COUNT(*) FROM {ratingstablename})
+            )
+            SELECT * FROM inserted;
+        """, (userid, itemid, rating))
+        
+        total_rows = cur.fetchone()[0]
+        index = (total_rows - 1) % numberofpartitions
+        table_name = f"{RROBIN_TABLE_PREFIX}{index}"
+
+        # Insert vào partition tương ứng
+        cur.execute(f"""
+            INSERT INTO {table_name} (userid, movieid, rating) 
+            VALUES (%s, %s, %s);
+        """, (userid, itemid, rating))
+
+        openconnection.commit()
+        print(f"[roundrobininsert] Successfully inserted into partition {index}")
+
+    except Exception as e:
+        openconnection.rollback()
+        print(f"[roundrobininsert] Error: {e}")
+        raise
+    finally:
+        cur.close()
 
 
 def rangeinsert(_, userid, itemid, rating, openconnection: psycopg2.extensions.connection) -> None:
