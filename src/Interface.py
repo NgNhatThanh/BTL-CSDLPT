@@ -2,6 +2,7 @@ import psycopg2.extensions
 import os
 import time
 from dotenv import load_dotenv
+from io import StringIO
 
 load_dotenv()
 
@@ -29,43 +30,37 @@ def create_metadata_table_if_not_exists(cursor: psycopg2.extensions.cursor) -> N
     )
 
     cursor.execute(command)
-    print (command)
-
+    # print (command)
 
 def loadratings(ratingstablename, ratingsfilepath, openconnection):
-    from io import StringIO
-    import time
-
     start_time = time.time()
     cur = openconnection.cursor()
 
     try:
-        # Tạo bảng chính
         cur.execute(f"DROP TABLE IF EXISTS {ratingstablename};")
         cur.execute(f"""
             CREATE TABLE {ratingstablename} (
-                UserID INT,
-                MovieID INT,
-                Rating FLOAT,
-                PRIMARY KEY (UserID, MovieID)
+                userid INT,
+                movieid INT,
+                rating FLOAT
             );
         """)
 
-        # Đọc và xử lý dữ liệu, chỉ lấy UserID, MovieID, Rating
+        buffer = StringIO()
         with open(ratingsfilepath, 'r') as f:
-            data = [
-                f"{p[0]}\t{p[2]}\t{p[4]}\n"
-                for line in f if (p := line.strip().split(':')) and len(p) >= 5
-            ]
+            for line in f:
+                parts = line.strip().split('::')
+                if len(parts) >= 3:
+                    buffer.write(f"{parts[0]}\t{parts[1]}\t{parts[2]}\n")
+        buffer.seek(0)
 
-        # Tạo bảng tạm và nạp dữ liệu
-        cur.execute("CREATE TEMP TABLE temp_ratings (userid INT, movieid INT, rating FLOAT) ON COMMIT DROP;")
-        cur.copy_from(StringIO(''.join(data)), 'temp_ratings', sep='\t')
+        cur.copy_from(buffer, ratingstablename, sep='\t', columns=('userid', 'movieid', 'rating'))
 
-        # Chuyển sang bảng chính
-        cur.execute(f"INSERT INTO {ratingstablename} SELECT * FROM temp_ratings;")
+        cur.execute(f"ALTER TABLE {ratingstablename} ADD PRIMARY KEY (userid, movieid);")
+
         openconnection.commit()
         print(f"[loadratings] Completed in {time.time() - start_time:.2f} seconds")
+
     except Exception as e:
         openconnection.rollback()
         print(f"[loadratings] Error: {e}")
@@ -119,7 +114,7 @@ def rangepartition(ratingstablename, numberofpartitions, openconnection):
         """)
 
         cur.execute(command)
-        print (command)
+        # print (command)
 
         openconnection.commit()
         print(f"[rangepartition] Completed {numberofpartitions} partitions in {time.time() - start_time:.2f} seconds")
