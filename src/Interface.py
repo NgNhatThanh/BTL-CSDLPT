@@ -191,17 +191,14 @@ def roundrobininsert(ratingstablename, userid, itemid, rating, openconnection):
         if not numberofpartitions:
             raise ValueError("No round-robin partitions found")
 
-        # Insert vào bảng chính và lấy số hàng trong một query
         cur.execute(f"""
-            WITH inserted AS (
                 INSERT INTO {ratingstablename} (userid, movieid, rating) 
                 VALUES (%s, %s, %s)
-                RETURNING (SELECT COUNT(*) FROM {ratingstablename})
-            )
-            SELECT * FROM inserted;
         """, (userid, itemid, rating))
-        
+        cur.execute(f"SELECT COUNT(*) FROM {ratingstablename}")
         total_rows = cur.fetchone()[0]
+        print (f"[roundrobininsert] Total rows: {total_rows}")
+
         index = (total_rows - 1) % numberofpartitions
         table_name = f"{RROBIN_TABLE_PREFIX}{index}"
 
